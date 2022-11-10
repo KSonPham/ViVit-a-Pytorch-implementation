@@ -3,4 +3,3 @@ numpy
 tqdm
 tensorboard
 ml-collections
-einops

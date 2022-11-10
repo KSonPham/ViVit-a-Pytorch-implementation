@@ -100,7 +100,6 @@ class ViViT(nn.Module):
 
         x = self.temporal_transformer(x)
         
-
         x = x.mean(dim = 1) if self.pool == 'mean' else x[:, 0]
         logits = self.mlp_head(x)
         
@@ -112,9 +111,7 @@ class ViViT(nn.Module):
             return logits
 
     
-    
-    
-    
+
 
 if __name__ == "__main__":
     

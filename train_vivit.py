@@ -17,7 +17,7 @@ from torch.utils.tensorboard import SummaryWriter
 from apex import amp
 from apex.parallel import DistributedDataParallel as DDP
 
-from models.modeling import VisionTransformer, CONFIGS
+from models.modeling import VisionTransformer, CONFIGS, MyViViT
 from models.vivit import ViViT
 from utils.scheduler import WarmupLinearSchedule, WarmupCosineSchedule
 from utils.data_utils import get_loader
@@ -62,15 +62,15 @@ def setup(args):
 
     num_classes = 10 if args.dataset == "cifar10" else 100
 
-    # model = VisionTransformer(config, args.img_size, zero_head=True, num_classes=num_classes)
-    # model.load_from(np.load(args.pretrained_dir))
     
-    if args.dataset == "cifar10":
-        num_frame = 1
+    
+    if args.dataset == "cifar10" or args.dataset == "cifar100":
+        num_frames = 1
     else:
-        num_frame = 16
+        num_frames = 32
         
-    model = ViViT(224, 16, num_classes, num_frame)
+    model = MyViViT(config, args.img_size, num_classes=num_classes, num_frames=num_frames)
+    model.load_from(np.load(args.pretrained_dir))
     model.to(args.device)
     num_params = count_parameters(model)
 
@@ -113,6 +113,11 @@ def valid(args, model, writer, test_loader, global_step):
     for step, batch in enumerate(epoch_iterator):
         batch = tuple(t.to(args.device) for t in batch)
         x, y = batch
+        if args.model_type == "ViViT-B/16x2":
+                # For handling images
+            if x.dim() == 4:
+                x = torch.unsqueeze(x, 1)
+                x = x.expand(-1,2,-1,-1,-1)
         with torch.no_grad():
             logits = model(x)
 
@@ -201,6 +206,11 @@ def train(args, model):
         for step, batch in enumerate(epoch_iterator):
             batch = tuple(t.to(args.device) for t in batch)
             x, y = batch
+            if args.model_type == "ViViT-B/16x2":
+                # For handling images
+                if x.dim() == 4:
+                    x = torch.unsqueeze(x, 1)
+                    x = x.expand(-1,2,-1,-1,-1)
             
             loss = model(x, y)
 
@@ -256,8 +266,8 @@ def main():
     parser.add_argument("--dataset", choices=["cifar10", "cifar100"], default="cifar10",
                         help="Which downstream task.")
     parser.add_argument("--model_type", choices=["ViT-B_16", "ViT-B_32", "ViT-L_16",
-                                                 "ViT-L_32", "ViT-H_14", "R50-ViT-B_16"],
-                        default="ViT-B_16",
+                                                 "ViT-L_32", "ViT-H_14", "R50-ViT-B_16","ViViT-B/16x2"],
+                        default="ViViT-B/16x2",
                         help="Which variant to use.")
     parser.add_argument("--pretrained_dir", type=str, default="imagenet21k_ViT-B_16.npz",
                         help="Where to search for pretrained ViT models.")
@@ -266,7 +276,7 @@ def main():
 
     parser.add_argument("--img_size", default=224, type=int,
                         help="Resolution size")
-    parser.add_argument("--train_batch_size", default=128, type=int,
+    parser.add_argument("--train_batch_size", default=64, type=int,
                         help="Total batch size for training.")
     parser.add_argument("--eval_batch_size", default=64, type=int,
                         help="Total batch size for eval.")
@@ -291,7 +301,7 @@ def main():
                         help="local_rank for distributed training on gpus")
     parser.add_argument('--seed', type=int, default=42,
                         help="random seed for initialization")
-    parser.add_argument('--gradient_accumulation_steps', type=int, default=4,
+    parser.add_argument('--gradient_accumulation_steps', type=int, default=1,
                         help="Number of updates steps to accumulate before performing a backward/update pass.")
     parser.add_argument('--fp16', action='store_true', default=True,
                         help="Whether to use 16-bit float precision instead of 32-bit")

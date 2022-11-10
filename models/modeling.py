@@ -16,7 +16,8 @@ import numpy as np
 from torch.nn import CrossEntropyLoss, Dropout, Softmax, Linear, Conv2d, LayerNorm
 from torch.nn.modules.utils import _pair
 from scipy import ndimage
-
+from einops import rearrange, repeat
+from einops.layers.torch import Rearrange
 import models.configs as configs
 
 from .modeling_resnet import ResNetV2
@@ -152,6 +153,7 @@ class Embeddings(nn.Module):
 
         self.dropout = Dropout(config.transformer["dropout_rate"])
 
+
     def forward(self, x):
         B = x.shape[0]
         cls_tokens = self.cls_token.expand(B, -1, -1)
@@ -167,6 +169,50 @@ class Embeddings(nn.Module):
         embeddings = self.dropout(embeddings)
         return embeddings
 
+
+class Embeddings3D(nn.Module):
+    """Construct the embeddings from patch, position embeddings.
+    """
+    def __init__(self, config, img_size, num_frame, in_channels=3):
+        super(Embeddings3D, self).__init__()
+        
+        img_size = _pair(img_size)
+
+        patch_size = config.patches["size"]
+        
+        n_patches = (img_size[0] // patch_size[0]) * (img_size[1] // patch_size[1]) * (num_frame // patch_size[2])
+        
+        
+        self.tubelet_embedding = nn.Conv3d(in_channels=in_channels,
+                                        out_channels=config.hidden_size,
+                                        kernel_size=patch_size,
+                                        stride=patch_size)
+        
+        self.position_embeddings = nn.Parameter(torch.zeros(1, n_patches+1, config.hidden_size))
+        
+        self.cls_token = nn.Parameter(torch.zeros(1, 1, config.hidden_size))
+
+        self.dropout = Dropout(config.transformer["dropout_rate"])
+
+
+    def forward(self, x):
+        B = x.shape[0]
+        
+        cls_tokens = self.cls_token.expand(B, -1, -1)
+
+        x = self.tubelet_embedding(x)
+        
+        x = x.flatten(2)
+        
+        x = x.transpose(-1, -2)
+        
+        x = torch.cat((cls_tokens, x), dim=1)
+
+        embeddings = x + self.position_embeddings
+        
+        embeddings = self.dropout(embeddings)
+        
+        return embeddings
 
 class Block(nn.Module):
     def __init__(self, config, vis):
@@ -258,6 +304,14 @@ class Transformer(nn.Module):
         encoded, attn_weights = self.encoder(embedding_output)
         return encoded, attn_weights
 
+class Transformer_noembed(nn.Module):
+    def __init__(self, config, vis = False):
+        super(Transformer_noembed, self).__init__()
+        self.encoder = Encoder(config, vis)
+
+    def forward(self, input_ids):
+        encoded, _ = self.encoder(input_ids)
+        return encoded
 
 class VisionTransformer(nn.Module):
     def __init__(self, config, img_size=224, num_classes=21843, zero_head=False, vis=False):
@@ -335,82 +389,95 @@ class VisionTransformer(nn.Module):
                     for uname, unit in block.named_children():
                         unit.load_from(weights, n_block=bname, n_unit=uname)
 
-class MyVivit(nn.modules):
-    def __init__(self, config, img_size=224, num_classes=21843, zero_head=False, vis=False):
-        super(VisionTransformer, self).__init__()
+class MyViViT(nn.Module):
+    def __init__(self, config, image_size=224, num_classes=100, num_frames = 32,  pool = 'cls'):
+        super().__init__()
+        self.patch_size = config.patches["size"]
+        self.image_size = image_size
+        self.hidden_dim = config.hidden_size     
+        self.num_frames = num_frames
         self.num_classes = num_classes
-        self.zero_head = zero_head
-        self.classifier = config.classifier
-
-        self.transformer = Transformer(config, img_size, vis)
-        self.head = Linear(config.hidden_size, num_classes)
+        assert pool in {'cls', 'mean'}, 'pool type must be either cls (cls token) or mean (mean pooling)'
+        assert image_size % self.patch_size[0] == 0, 'Image dimensions must be divisible by the patch size.'
+        self.embeddings = Embeddings3D(config=config, img_size=image_size, num_frame=num_frames)
+        self.spatial_transformer = Transformer_noembed(config.spatial)
+        self.temporal_token = nn.Parameter(torch.zeros(1, 1, self.hidden_dim))
+        self.temporal_transformer = Transformer_noembed(config.temporal)       
+        self.pool = pool
+        self.mlp_head = nn.Sequential(
+            nn.LayerNorm(self.hidden_dim),
+            nn.Linear(self.hidden_dim, num_classes)
+        )
 
     def forward(self, x, labels=None):
-        x, attn_weights = self.transformer(x)
-        logits = self.head(x[:, 0])
+        
+        x = x.permute(0,2,3,4,1)      
+        x = self.embeddings(x)       
+        x = self.spatial_transformer(x)       
+        temporal_tokens = self.temporal_token.expand(x.shape[0], -1, -1)
+        x = torch.cat((temporal_tokens, x), dim=1)
+        x = self.temporal_transformer(x)        
+        x = x.mean(dim = 1) if self.pool == 'mean' else x[:, 0]        
+        logits = self.mlp_head(x)        
+        if labels is not None:            
+            loss_fct = CrossEntropyLoss()            
+            loss = loss_fct(logits.view(-1, self.num_classes), labels.view(-1))            
+            return loss        
+        else:            
+            return logits
 
-        if labels is not None:
-            loss_fct = CrossEntropyLoss()
-            loss = loss_fct(logits.view(-1, self.num_classes), labels.view(-1))
-            return loss
+    def prepare_conv3d_weight(self, weights, method):
+        # Prepare kernel weights
+        kernel_w = np2th(weights["embedding/kernel"],conv=True)
+        expanding_dim = self.embeddings.tubelet_embedding.weight.shape[4]
+        # Prepare bias weights
+        bias_w = np2th(weights["embedding/bias"])
+        
+        if method == "central_frame_initializer":
+            init_index = expanding_dim // 2
+            pad_w = torch.zeros(self.embeddings.tubelet_embedding.weight.shape)
+            pad_w[:,:,:,:,init_index] = kernel_w
+            kernel_w = pad_w
         else:
-            return logits, attn_weights
-
+            kernel_w = torch.unsqueeze(kernel_w, 4)
+            kernel_w = kernel_w.expand(-1, -1, -1, -1, expanding_dim)
+            kernel_w = torch.div(kernel_w, expanding_dim) 
+            
+    
+        self.embeddings.tubelet_embedding.weight.copy_(kernel_w)
+        self.embeddings.tubelet_embedding.bias.copy_(bias_w)
+        
+        return
+    
     def load_from(self, weights):
         with torch.no_grad():
-            if self.zero_head:
-                nn.init.zeros_(self.head.weight)
-                nn.init.zeros_(self.head.bias)
-            else:
-                self.head.weight.copy_(np2th(weights["head/kernel"]).t())
-                self.head.bias.copy_(np2th(weights["head/bias"]).t())
-
-            self.transformer.embeddings.patch_embeddings.weight.copy_(np2th(weights["embedding/kernel"], conv=True))
-            self.transformer.embeddings.patch_embeddings.bias.copy_(np2th(weights["embedding/bias"]))
-            self.transformer.embeddings.cls_token.copy_(np2th(weights["cls"]))
-            self.transformer.encoder.encoder_norm.weight.copy_(np2th(weights["Transformer/encoder_norm/scale"]))
-            self.transformer.encoder.encoder_norm.bias.copy_(np2th(weights["Transformer/encoder_norm/bias"]))
+            
+            self.prepare_conv3d_weight(weights, method = "central_frame_initializer")
+            self.embeddings.cls_token.copy_(np2th(weights["cls"]))
+            self.temporal_token.copy_(np2th(weights["cls"]))
+            
+            self.spatial_transformer.encoder.encoder_norm.weight.copy_(np2th(weights["Transformer/encoder_norm/scale"]))
+            self.spatial_transformer.encoder.encoder_norm.bias.copy_(np2th(weights["Transformer/encoder_norm/bias"]))
+            
+            self.temporal_transformer.encoder.encoder_norm.weight.copy_(np2th(weights["Transformer/encoder_norm/scale"]))
+            self.temporal_transformer.encoder.encoder_norm.bias.copy_(np2th(weights["Transformer/encoder_norm/bias"]))
 
             posemb = np2th(weights["Transformer/posembed_input/pos_embedding"])
-            posemb_new = self.transformer.embeddings.position_embeddings
-            if posemb.size() == posemb_new.size():
-                self.transformer.embeddings.position_embeddings.copy_(posemb)
-            else:
-                logger.info("load_pretrained: resized variant: %s to %s" % (posemb.size(), posemb_new.size()))
-                ntok_new = posemb_new.size(1)
+            posemb_new = self.embeddings.position_embeddings
+            if posemb.size() != posemb_new.size():
+                expand_factor = (posemb_new.shape[1]-1)//(posemb.shape[1]-1)
+                cls_token_weight = torch.unsqueeze(posemb[:,0,:],0)
+                tubelet_weight = posemb[:,1:,:].repeat(1,expand_factor,1)
+                posemb = torch.cat((cls_token_weight,tubelet_weight),dim=1)
 
-                if self.classifier == "token":
-                    posemb_tok, posemb_grid = posemb[:, :1], posemb[0, 1:]
-                    ntok_new -= 1
-                else:
-                    posemb_tok, posemb_grid = posemb[:, :0], posemb[0]
-
-                gs_old = int(np.sqrt(len(posemb_grid)))
-                gs_new = int(np.sqrt(ntok_new))
-                print('load_pretrained: grid-size from %s to %s' % (gs_old, gs_new))
-                posemb_grid = posemb_grid.reshape(gs_old, gs_old, -1)
-
-                zoom = (gs_new / gs_old, gs_new / gs_old, 1)
-                posemb_grid = ndimage.zoom(posemb_grid, zoom, order=1)
-                posemb_grid = posemb_grid.reshape(1, gs_new * gs_new, -1)
-                posemb = np.concatenate([posemb_tok, posemb_grid], axis=1)
-                self.transformer.embeddings.position_embeddings.copy_(np2th(posemb))
-
-            for bname, block in self.transformer.encoder.named_children():
+            self.embeddings.position_embeddings.copy_(posemb)
+            for bname, block in self.spatial_transformer.encoder.named_children():
                 for uname, unit in block.named_children():
                     unit.load_from(weights, n_block=uname)
-
-            if self.transformer.embeddings.hybrid:
-                self.transformer.embeddings.hybrid_model.root.conv.weight.copy_(np2th(weights["conv_root/kernel"], conv=True))
-                gn_weight = np2th(weights["gn_root/scale"]).view(-1)
-                gn_bias = np2th(weights["gn_root/bias"]).view(-1)
-                self.transformer.embeddings.hybrid_model.root.gn.weight.copy_(gn_weight)
-                self.transformer.embeddings.hybrid_model.root.gn.bias.copy_(gn_bias)
-
-                for bname, block in self.transformer.embeddings.hybrid_model.body.named_children():
-                    for uname, unit in block.named_children():
-                        unit.load_from(weights, n_block=bname, n_unit=uname)
-
+                    
+            for bname, block in self.temporal_transformer.encoder.named_children():
+                for uname, unit in block.named_children():
+                    unit.load_from(weights, n_block=uname)
 
 CONFIGS = {
     'ViT-B_16': configs.get_b16_config(),
