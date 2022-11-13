@@ -2,7 +2,7 @@ import decord
 from decord import cpu, gpu
 import numpy as np
 import random
-import data_transform as T
+import data_transforms as T
 # import torchvision
 import os
 import torch
@@ -130,7 +130,7 @@ class ZALO(torch.utils.data.Dataset):
 	def collate_fn(self, batch):
 		return tuple(zip(*batch))
 
-video_path = "/home/callum/VideoTransformer-pytorch/train/videos"
+video_path = "train/videos"
 label_path = "train/label.csv"
 num_frames = 32
 frame_interval = num_frames // 2
