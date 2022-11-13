@@ -1,6 +1,6 @@
 # ViViT: A Video Vision Transformer
 Unofficial implementation of [ViViT: A Video Vision Transformer](https://arxiv.org/abs/2103.15691).
-![](image/model.PNG)
+![](image/model.png)
 
 ## Notes:
 * This is the implementation of model 2 only
