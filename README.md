@@ -16,7 +16,7 @@ cd apex
 pip install -v --disable-pip-version-check --no-cache-dir ./ 
 pip install -r requirements.txt
 wget https://storage.googleapis.com/vit_models/imagenet21k/ViT-B_16.npz
-python train_vivit.py --name test_cifar --pretrained_dir /ViT-B_16.npz
+python train_vivit.py --name test_cifar --pretrained_dir /ViT-B_16.npz --dataset cifar10
 ```
 
 ## Citation:
@@ -33,6 +33,6 @@ python train_vivit.py --name test_cifar --pretrained_dir /ViT-B_16.npz
 
 ## Acknowledgement:
 * Base ViT code and training setting are borrowed from [@jeonsworld](https://github.com/jeonsworld) repo : https://github.com/jeonsworld/ViT-pytorch
-* Some data processing for ViViT is from : https://github.com/mx-mark/VideoTransformer-pytorch
+
 
 

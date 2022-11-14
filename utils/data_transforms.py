@@ -473,16 +473,13 @@ class ThreeCrop(object):
 #  ---------------------  Sampling  ---------------------------
 #  ------------------------------------------------------------
 class TemporalRandomCrop(object):
-	"""Temporally crop the given frame indices at a random location.
-
-	Args:
-		size (int): Desired length of frames will be seen in the model.
+	"""
+ 	Temporally crop the given frame indices at a random location.
 	"""
 
-	def __init__(self, size):
-		self.size = size
-
-	def __call__(self, total_frames):
+	def __init__(self):
+	def __call__(self, total_frames, target_size):
+		self.size = target_size
 		rand_end = max(0, total_frames - self.size - 1)
 		begin_index = random.randint(0, rand_end)
 		end_index = min(begin_index + self.size, total_frames)

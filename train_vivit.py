@@ -67,7 +67,7 @@ def setup(args):
     if args.dataset == "cifar10" or args.dataset == "cifar100":
         num_frames = 1
     else:
-        num_frames = 32
+        num_frames = args.num_frames
         
     model = MyViViT(config, args.img_size, num_classes=num_classes, num_frames=num_frames)
     model.load_from(np.load(args.pretrained_dir))
@@ -150,6 +150,45 @@ def valid(args, model, writer, test_loader, global_step):
     writer.add_scalar("test/accuracy", scalar_value=accuracy, global_step=global_step)
     return accuracy
 
+def test(args, model, writer, test_loader, global_step):
+    # Validation!
+
+    logger.info("***** Running Validation *****")
+    logger.info("  Num steps = %d", len(test_loader))
+    logger.info("  Batch size = %d", args.eval_batch_size)
+
+    model.eval()
+    all_preds = [] 
+    epoch_iterator = tqdm(test_loader,
+                          desc="Testing...",
+                          bar_format="{l_bar}{r_bar}",
+                          dynamic_ncols=True,
+                          disable=args.local_rank not in [-1, 0])
+    
+    for step, batch in enumerate(epoch_iterator):
+        batch = tuple(t.to(args.device) for t in batch)
+        x, _ = batch
+        if args.model_type == "ViViT-B/16x2":
+                # For handling images
+            if x.dim() == 4:
+                x = torch.unsqueeze(x, 1)
+                x = x.expand(-1,2,-1,-1,-1)
+        with torch.no_grad():
+            logits = model(x)
+            preds = torch.argmax(logits, dim=-1)
+
+        if len(all_preds) == 0:
+            all_preds.append(preds.detach().cpu().numpy())
+
+        else:
+            all_preds[0] = np.append(
+                all_preds[0], preds.detach().cpu().numpy(), axis=0
+            )
+
+
+    all_preds = all_preds[0]
+
+    return all_preds
 
 def train(args, model):
     """ Train the model """
@@ -263,22 +302,25 @@ def main():
     # Required parameters
     parser.add_argument("--name", required=False, default="test",
                         help="Name of this run. Used for monitoring.")
-    parser.add_argument("--dataset", choices=["cifar10", "cifar100"], default="cifar10",
+    parser.add_argument("--dataset", choices=["cifar10", "cifar100","custom"], default="custom",
                         help="Which downstream task.")
-    parser.add_argument("--model_type", choices=["ViT-B_16", "ViT-B_32", "ViT-L_16",
-                                                 "ViT-L_32", "ViT-H_14", "R50-ViT-B_16","ViViT-B/16x2"],
+    parser.add_argument("--model_type", choices=["ViViT-B/16x2"],
                         default="ViViT-B/16x2",
                         help="Which variant to use.")
-    parser.add_argument("--pretrained_dir", type=str, default="imagenet21k_ViT-B_16.npz",
+    parser.add_argument("--pretrained_dir", type=str, default="ViT-B_16.npz",
                         help="Where to search for pretrained ViT models.")
     parser.add_argument("--output_dir", default="output", type=str,
                         help="The output directory where checkpoints will be written.")
+    parser.add_argument("--data_dir", default="train", type=str,
+                        help="Path to the data.")
 
     parser.add_argument("--img_size", default=224, type=int,
                         help="Resolution size")
-    parser.add_argument("--train_batch_size", default=64, type=int,
+    parser.add_argument("--num_frames", default=32, type=int,
+                        help="Number of input frame to sample")
+    parser.add_argument("--train_batch_size", default=2, type=int,
                         help="Total batch size for training.")
-    parser.add_argument("--eval_batch_size", default=64, type=int,
+    parser.add_argument("--eval_batch_size", default=2, type=int,
                         help="Total batch size for eval.")
     parser.add_argument("--eval_every", default=100, type=int,
                         help="Run prediction on validation set every so many steps."

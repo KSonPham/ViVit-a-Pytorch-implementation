@@ -4,3 +4,4 @@ tqdm
 tensorboard
 ml-collections
 einops
+decord
