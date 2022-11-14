@@ -82,7 +82,10 @@ def get_loader(args):
     
     else:
         data = CustomDataset(args.data_dir + "/videos",args.data_dir + "/label.csv",args.num_frames, blackbar_check=get_blackbar)
-        trainset,testset = random_split(data, [0.8, 0.2], generator=torch.Generator().manual_seed(args.seed))
+        try:
+            trainset,testset = random_split(data, [0.8, 0.2], generator=torch.Generator().manual_seed(args.seed))
+        except:
+            trainset,testset = random_split(data, [935, 233], generator=torch.Generator().manual_seed(args.seed))
         trainset.dataset.set_transform(data_transforms["train"])
         testset.dataset.set_transform(data_transforms["val"])
     if args.local_rank == 0:

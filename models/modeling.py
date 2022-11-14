@@ -288,7 +288,7 @@ class MyViViT(nn.Module):
         x = x.mean(dim = 1) if self.pool == 'mean' else x[:, 0]        
         logits = self.mlp_head(x)        
         if labels is not None:            
-            loss_fct = CrossEntropyLoss()            
+            loss_fct = CrossEntropyLoss(label_smoothing=0.1)            
             loss = loss_fct(logits.view(-1, self.num_classes), labels.view(-1))            
             return loss        
         else:            
