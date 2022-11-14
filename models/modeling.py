@@ -19,7 +19,8 @@ from torch.nn.modules.utils import _pair
 
 import models.configs as configs
 
-
+import numpy as np
+import scipy
 
 
 logger = logging.getLogger(__name__)
@@ -124,22 +125,27 @@ class Mlp(nn.Module):
 class Embeddings3D(nn.Module):
     """Construct the embeddings from patch, position embeddings.
     """
-    def __init__(self, config, img_size, num_frame, in_channels=3):
+    def __init__(self, config, img_size, num_frame, in_channels=3, temporal = True):
         super(Embeddings3D, self).__init__()
+        
+        self.temporal = temporal
         
         img_size = _pair(img_size)
 
         patch_size = config.patches["size"]
         
+        assert img_size[0] % patch_size[0] == 0, 'Image dimensions must be divisible by the patch size.'
+                
         n_patches = (img_size[0] // patch_size[0]) * (img_size[1] // patch_size[1]) * (num_frame // patch_size[2])
         
-        
-        self.tubelet_embedding = nn.Conv3d(in_channels=in_channels,
-                                        out_channels=config.hidden_size,
-                                        kernel_size=patch_size,
-                                        stride=patch_size)
-        
-        self.position_embeddings = nn.Parameter(torch.zeros(1, n_patches+1, config.hidden_size))
+        if not self.temporal:
+            self.tubelet_embedding = nn.Conv3d(in_channels=in_channels,
+                                            out_channels=config.hidden_size,
+                                            kernel_size=patch_size,
+                                            stride=patch_size)
+            self.position_embeddings = nn.Parameter(torch.zeros(1, n_patches+1, config.hidden_size))
+        else:
+            self.position_embeddings = nn.Parameter(torch.zeros(1, n_patches+2, config.hidden_size))
         
         self.cls_token = nn.Parameter(torch.zeros(1, 1, config.hidden_size))
 
@@ -150,12 +156,11 @@ class Embeddings3D(nn.Module):
         B = x.shape[0]
         
         cls_tokens = self.cls_token.expand(B, -1, -1)
-
-        x = self.tubelet_embedding(x)
         
-        x = x.flatten(2)
-        
-        x = x.transpose(-1, -2)
+        if not self.temporal:
+            x = self.tubelet_embedding(x)
+            x = x.flatten(2)
+            x = x.transpose(-1, -2)
         
         x = torch.cat((cls_tokens, x), dim=1)
 
@@ -245,11 +250,13 @@ class Encoder(nn.Module):
 
 
 class Transformer(nn.Module):
-    def __init__(self, config, vis = False):
+    def __init__(self, config, img_size, num_frames, temporal, vis = False):
         super(Transformer, self).__init__()
+        self.embedding = Embeddings3D(config, img_size=img_size,num_frame=num_frames, temporal=temporal)
         self.encoder = Encoder(config, vis)
 
     def forward(self, input_ids):
+        input_ids = self.embedding(input_ids)
         encoded, _ = self.encoder(input_ids)
         return encoded
 
@@ -258,17 +265,15 @@ class Transformer(nn.Module):
 class MyViViT(nn.Module):
     def __init__(self, config, image_size=224, num_classes=100, num_frames = 32,  pool = 'cls'):
         super().__init__()
-        self.patch_size = config.patches["size"]
+        
         self.image_size = image_size
         self.hidden_dim = config.hidden_size     
         self.num_frames = num_frames
         self.num_classes = num_classes
         assert pool in {'cls', 'mean'}, 'pool type must be either cls (cls token) or mean (mean pooling)'
-        assert image_size % self.patch_size[0] == 0, 'Image dimensions must be divisible by the patch size.'
-        self.embeddings = Embeddings3D(config=config, img_size=image_size, num_frame=num_frames)
-        self.spatial_transformer = Transformer(config.spatial)
-        self.temporal_token = nn.Parameter(torch.zeros(1, 1, self.hidden_dim))
-        self.temporal_transformer = Transformer(config.temporal)       
+
+        self.spatial_transformer = Transformer(config.spatial,image_size,num_frames,temporal=False) 
+        self.temporal_transformer = Transformer(config.temporal,image_size,num_frames,temporal = True)       
         self.pool = pool
         self.mlp_head = nn.Sequential(
             nn.LayerNorm(self.hidden_dim),
@@ -277,11 +282,8 @@ class MyViViT(nn.Module):
 
     def forward(self, x, labels=None):
         
-        x = x.permute(0,2,3,4,1)      
-        x = self.embeddings(x)       
-        x = self.spatial_transformer(x)       
-        temporal_tokens = self.temporal_token.expand(x.shape[0], -1, -1)
-        x = torch.cat((temporal_tokens, x), dim=1)
+        x = x.permute(0,2,3,4,1)        
+        x = self.spatial_transformer(x)      
         x = self.temporal_transformer(x)        
         x = x.mean(dim = 1) if self.pool == 'mean' else x[:, 0]        
         logits = self.mlp_head(x)        
@@ -295,13 +297,13 @@ class MyViViT(nn.Module):
     def prepare_conv3d_weight(self, weights, method):
         # Prepare kernel weights
         kernel_w = np2th(weights["embedding/kernel"],conv=True)
-        expanding_dim = self.embeddings.tubelet_embedding.weight.shape[4]
+        expanding_dim = self.spatial_transformer.embedding.tubelet_embedding.weight.shape[4]
         # Prepare bias weights
         bias_w = np2th(weights["embedding/bias"])
         
         if method == "central_frame_initializer":
             init_index = expanding_dim // 2
-            pad_w = torch.zeros(self.embeddings.tubelet_embedding.weight.shape)
+            pad_w = torch.zeros(self.spatial_transformer.embedding.tubelet_embedding.weight.shape)
             pad_w[:,:,:,:,init_index] = kernel_w
             kernel_w = pad_w
         else:
@@ -310,17 +312,24 @@ class MyViViT(nn.Module):
             kernel_w = torch.div(kernel_w, expanding_dim) 
             
     
-        self.embeddings.tubelet_embedding.weight.copy_(kernel_w)
-        self.embeddings.tubelet_embedding.bias.copy_(bias_w)
+        self.spatial_transformer.embedding.tubelet_embedding.weight.copy_(kernel_w)
+        self.spatial_transformer.embedding.tubelet_embedding.bias.copy_(bias_w)
         
         return
     
+    def load_temporal_positional_encoding(self, restored_posemb_old,n_tokens):
+        restored_posemb = np.squeeze(restored_posemb_old)
+        zoom = (n_tokens / restored_posemb.shape[0], 1)
+        restored_posemb = scipy.ndimage.zoom(restored_posemb, zoom, order=1)
+        restored_posemb = np.expand_dims(restored_posemb, axis=0)
+        return restored_posemb
+        
     def load_from(self, weights):
         with torch.no_grad():
             
             self.prepare_conv3d_weight(weights, method = "central_frame_initializer")
-            self.embeddings.cls_token.copy_(np2th(weights["cls"]))
-            self.temporal_token.copy_(np2th(weights["cls"]))
+            self.spatial_transformer.embedding.cls_token.copy_(np2th(weights["cls"]))
+            self.temporal_transformer.embedding.cls_token.copy_(np2th(weights["cls"]))
             
             self.spatial_transformer.encoder.encoder_norm.weight.copy_(np2th(weights["Transformer/encoder_norm/scale"]))
             self.spatial_transformer.encoder.encoder_norm.bias.copy_(np2th(weights["Transformer/encoder_norm/bias"]))
@@ -329,14 +338,19 @@ class MyViViT(nn.Module):
             self.temporal_transformer.encoder.encoder_norm.bias.copy_(np2th(weights["Transformer/encoder_norm/bias"]))
 
             posemb = np2th(weights["Transformer/posembed_input/pos_embedding"])
-            posemb_new = self.embeddings.position_embeddings
-            if posemb.size() != posemb_new.size():
-                expand_factor = (posemb_new.shape[1]-1)//(posemb.shape[1]-1)
+            posemb_temporal = self.load_temporal_positional_encoding(posemb, self.temporal_transformer.embedding.position_embeddings.shape[1])
+            
+            posemb_spatial = self.spatial_transformer.embedding.position_embeddings
+            if posemb.size() != posemb_spatial.size():
+                expand_factor = (posemb_spatial.shape[1]-1)//(posemb.shape[1]-1)
                 cls_token_weight = torch.unsqueeze(posemb[:,0,:],0)
                 tubelet_weight = posemb[:,1:,:].repeat(1,expand_factor,1)
                 posemb = torch.cat((cls_token_weight,tubelet_weight),dim=1)
 
-            self.embeddings.position_embeddings.copy_(posemb)
+            self.spatial_transformer.embedding.position_embeddings.copy_(posemb)
+            self.temporal_transformer.embedding.position_embeddings.copy_(np2th(posemb_temporal))   
+
+            
             for bname, block in self.spatial_transformer.encoder.named_children():
                 for uname, unit in block.named_children():
                     unit.load_from(weights, n_block=uname)
