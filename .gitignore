@@ -28,9 +28,9 @@ share/python-wheels/
 *.egg
 MANIFEST
 output/
-logs/
-data/
-train/
+logs/**
+data/**
+train/**
 # PyInstaller
 #  Usually these files are written by a python script from a template
 #  before PyInstaller builds the exe, so as to inject date/other infos into it.
