@@ -360,5 +360,6 @@ class MyViViT(nn.Module):
                     unit.load_from(weights, n_block=uname)
 
 CONFIGS = {
-    'ViViT-B/16x2': configs.get_vb16_config()
+    'ViViT-B/16x2': configs.get_vb16_config(),
+    'ViViT-B/16x2-small': configs.get_vb16_config_small()
 }
