@@ -123,10 +123,8 @@ def valid(args, model, writer, test_loader, global_step):
                           bar_format="{l_bar}{r_bar}",
                           dynamic_ncols=True,
                           disable=args.local_rank not in [-1, 0])
-    if args.num_classes ==  2:
-        loss_fct = torch.nn.BCEWithLogitsLoss()
-    else:
-        loss_fct = torch.nn.CrossEntropyLoss()
+    
+    loss_fct = torch.nn.CrossEntropyLoss()
     for step, batch in enumerate(epoch_iterator):
         batch = tuple(t.to(args.device) for t in batch)
         x, y = batch
@@ -302,9 +300,9 @@ def main():
                         help="Resolution size")
     parser.add_argument("--num_frames", default=32, type=int,
                         help="Number of input frame to sample")
-    parser.add_argument("--train_batch_size", default=128, type=int,
+    parser.add_argument("--train_batch_size", default=64, type=int,
                         help="Total batch size for training.")
-    parser.add_argument("--eval_batch_size", default=128, type=int,
+    parser.add_argument("--eval_batch_size", default=64, type=int,
                         help="Total batch size for eval.")
     parser.add_argument("--eval_every", default=100, type=int,
                         help="Run prediction on validation set every so many steps."

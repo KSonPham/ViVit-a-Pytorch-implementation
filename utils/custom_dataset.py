@@ -103,7 +103,7 @@ class CustomDataset(torch.utils.data.Dataset):
 				video = torch.tensor(video, dtype=torch.float16)
 			else:
 				label = None
-				video = torch.tensor(video, dtype=torch.float32)
+				video = torch.tensor(video)
 			video = video.permute(0,3,1,2)
 			video = torch.div(video, 255)
 			if blackbak_crop is not None:

@@ -6,6 +6,9 @@ from utils.data_utils import get_loader
 import numpy as np
 import torch.nn.functional as F
 from models.modeling import MyViViT
+from os import listdir
+from os.path import isfile, join
+from pandas import DataFrame
 def test(args):
     # Test
     
@@ -15,6 +18,8 @@ def test(args):
         model = MyViViT(config, config.img_size, config.num_classes, config.num_frames)
         model.load_state_dict(checkpoint["model_state_dict"])
         model.to(args.device)
+        args.img_size = config.img_size
+        args.num_frames = config.num_frames
 
     _, test_loader = get_loader(args)
     model.eval()
@@ -28,6 +33,14 @@ def test(args):
                           disable=args.local_rank not in [-1, 0])
     test_iter = args.test_iteration
     livenessscore = []
+    
+    for batch in test_loader:
+        batch = batch.to(args.device)
+        x = batch
+    
+    
+    
+    
     for i in range(test_iter):
         liveness = None
         for step, batch in enumerate(epoch_iterator):
@@ -43,11 +56,12 @@ def test(args):
                 else:
                     liveness = score
 
-            
-
         livenessscore.append(liveness)
-
-    return all_preds
+        offical_score = sum(livenessscore)/test_iter
+        videos = [f for f in listdir(args.test_dir) if isfile(join(args.test_dir, f))]
+        out = DataFrame(zip(videos,offical_score),['fname', 'liveness_score'])
+        out.to_csv(join("results", args.checkpoint + ".csv"), sep = '\t')
+    return 
 
 def main():
     parser = argparse.ArgumentParser()
@@ -58,7 +72,7 @@ def main():
                         help="Which downstream task.")
     parser.add_argument("--pretrained_dir", type=str, default=None,
                         help="Where to search for pretrained ViT models.")
-    parser.add_argument("--checkpoint", type=str, default="output/test_checkpoint.bin",
+    parser.add_argument("--checkpoint", type=str, default="output/base_small_checkpoint.bin",
                         help="Where to search for pretrained ViT models.")
     parser.add_argument("--output_dir", default="output", type=str,
                         help="The output directory where checkpoints will be written.")
@@ -68,7 +82,7 @@ def main():
                         help="Path to the data.")
     
 
-    parser.add_argument("--eval_batch_size", default=5, type=int,
+    parser.add_argument("--eval_batch_size", default=2, type=int,
                         help="Total batch size for training.")
     parser.add_argument("--test_iteration", default=5, type=int,
                         help="Total batch size for training.")

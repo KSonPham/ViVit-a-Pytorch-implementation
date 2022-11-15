@@ -83,17 +83,17 @@ def get_loader(args):
     else:
     
         if args.data_dir and not args.test_dir:
-            data = CustomDataset(args.data_dir + "/videos",args.data_dir + "/label.csv",args.num_frames,transform=data_transforms["train"], blackbar_check=get_blackbar)
+            data = CustomDataset(args.data_dir + "/videos",args.data_dir + "/label.csv",args.num_frames,transform=data_transforms["train"], blackbar_check=None)
             try:
                 trainset,testset = random_split(data, [0.8, 0.2], generator=torch.Generator().manual_seed(args.seed))
             except:
                 trainset,testset = random_split(data, [935, 233], generator=torch.Generator().manual_seed(args.seed))
             testset.dataset.set_transform(data_transforms["val"])
         elif args.data_dir and args.test_dir:
-            trainset = CustomDataset(args.data_dir + "/videos",args.data_dir + "/label.csv",args.num_frames,transform=data_transforms["train"], blackbar_check=get_blackbar)
-            testset = CustomDataset(args.test_dir + "/videos",args.test_dir + "/label.csv",args.num_frames,transform=data_transforms["test"], blackbar_check=get_blackbar)
+            trainset = CustomDataset(args.data_dir + "/videos",args.data_dir + "/label.csv",args.num_frames,transform=data_transforms["train"], blackbar_check=None)
+            testset = CustomDataset(args.test_dir + "/videos",args.test_dir + "/label.csv",args.num_frames,transform=data_transforms["test"], blackbar_check=None)
         elif not args.data_dir and args.test_dir:
-            testset = CustomDataset(args.test_dir + "/videos",None,args.num_frames,transform=data_transforms["test"], blackbar_check=get_blackbar)
+            testset = CustomDataset(args.test_dir + "/videos",None,args.num_frames,transform=data_transforms["test"], blackbar_check=None)
             trainset = None
         
     if args.local_rank == 0:
