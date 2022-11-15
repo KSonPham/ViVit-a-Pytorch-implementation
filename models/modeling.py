@@ -270,6 +270,7 @@ class MyViViT(nn.Module):
         self.hidden_dim = config.hidden_size     
         self.num_frames = num_frames
         self.num_classes = num_classes
+        self.label_smoothing = config.label_smoothing
         assert pool in {'cls', 'mean'}, 'pool type must be either cls (cls token) or mean (mean pooling)'
 
         self.spatial_transformer = Transformer(config.spatial,image_size,num_frames,temporal=False) 
@@ -288,7 +289,7 @@ class MyViViT(nn.Module):
         x = x.mean(dim = 1) if self.pool == 'mean' else x[:, 0]        
         logits = self.mlp_head(x)        
         if labels is not None:            
-            loss_fct = CrossEntropyLoss(label_smoothing=0.1)            
+            loss_fct = CrossEntropyLoss(label_smoothing = self.label_smoothing)            
             loss = loss_fct(logits.view(-1, self.num_classes), labels.view(-1))            
             return loss        
         else:            

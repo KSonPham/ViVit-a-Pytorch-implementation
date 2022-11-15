@@ -59,10 +59,10 @@ def save_model(args, model):
 def setup(args):
     # Prepare model
     config = CONFIGS[args.model_type]
+    config.label_smoothing = args.label_smoothing
 
     num_classes = 10 if args.dataset == "cifar10" else 100
 
-    
     
     if args.dataset == "cifar10" or args.dataset == "cifar100":
         num_frames = 1
@@ -330,6 +330,8 @@ def main():
                         help="The initial learning rate for SGD.")
     parser.add_argument("--weight_decay", default=0, type=float,
                         help="Weight deay if we apply some.")
+    parser.add_argument("--label_smoothing", default=0, type=float,
+                        help="label smoothing p.")
     parser.add_argument("--num_steps", default=10000, type=int,
                         help="Total number of training epochs to perform.")
     parser.add_argument("--decay_type", choices=["cosine", "linear"], default="cosine",
