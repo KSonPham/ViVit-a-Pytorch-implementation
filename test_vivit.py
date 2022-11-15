@@ -33,14 +33,8 @@ def test(args):
                           disable=args.local_rank not in [-1, 0])
     test_iter = args.test_iteration
     livenessscore = []
-    
-    for batch in test_loader:
-        batch = batch.to(args.device)
-        x = batch
-    
-    
-    
-    
+
+
     for i in range(test_iter):
         liveness = None
         for step, batch in enumerate(epoch_iterator):
@@ -57,10 +51,12 @@ def test(args):
                     liveness = score
 
         livenessscore.append(liveness)
-        offical_score = sum(livenessscore)/test_iter
-        videos = [f for f in listdir(args.test_dir) if isfile(join(args.test_dir, f))]
-        out = DataFrame(zip(videos,offical_score),['fname', 'liveness_score'])
-        out.to_csv(join("results", args.checkpoint + ".csv"), sep = '\t')
+    offical_score = sum(livenessscore)/test_iter
+    offical_score = offical_score.tolist()
+    videos = sorted(listdir(args.test_dir  + "/videos"))
+    temp = zip(videos,offical_score)
+    out = DataFrame(temp, columns=['fname', 'liveness_score'])
+    out.to_csv(join("results", args.name + ".csv"), sep = '\t')
     return 
 
 def main():
@@ -74,8 +70,6 @@ def main():
                         help="Where to search for pretrained ViT models.")
     parser.add_argument("--checkpoint", type=str, default="output/base_small_checkpoint.bin",
                         help="Where to search for pretrained ViT models.")
-    parser.add_argument("--output_dir", default="output", type=str,
-                        help="The output directory where checkpoints will be written.")
     parser.add_argument("--test_dir", default="public", type=str,
                         help="Path to the test data.")
     parser.add_argument("--data_dir", default=None, type=str,

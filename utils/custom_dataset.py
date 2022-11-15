@@ -60,7 +60,7 @@ class CustomDataset(torch.utils.data.Dataset):
 		# self.configs = configs
 		self.labels = pd.read_csv(label_path) if label_path != None else None
 		self.label_path = label_path
-		self.data = os.listdir(data_path)
+		self.data = sorted(os.listdir(data_path))
 		self.data_path = data_path
 		self.tubelet_size = tubelet_size
 		self.transform = transform
