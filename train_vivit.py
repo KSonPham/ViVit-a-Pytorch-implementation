@@ -304,7 +304,7 @@ def main():
                         help="Name of this run. Used for monitoring.")
     parser.add_argument("--dataset", choices=["cifar10", "cifar100","custom"], default="custom",
                         help="Which downstream task.")
-    parser.add_argument("--model_type", choices=["ViViT-B/16x2"],
+    parser.add_argument("--model_type", choices=["ViViT-B/16x2","ViViT-B/16x2-small"],
                         default="ViViT-B/16x2",
                         help="Which variant to use.")
     parser.add_argument("--pretrained_dir", type=str, default="ViT-B_16.npz",
