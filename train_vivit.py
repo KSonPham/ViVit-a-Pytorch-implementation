@@ -75,7 +75,7 @@ def setup(args):
 
     
     if args.dataset == "cifar10" or args.dataset == "cifar100":
-        num_frames = 1
+        num_frames = 2
         num_classes = 10 if args.dataset == "cifar10" else 100
     else:
         num_frames = args.num_frames
@@ -123,15 +123,18 @@ def valid(args, model, writer, test_loader, global_step):
                           bar_format="{l_bar}{r_bar}",
                           dynamic_ncols=True,
                           disable=args.local_rank not in [-1, 0])
-    loss_fct = torch.nn.CrossEntropyLoss()
+    if args.num_classes ==  2:
+        loss_fct = torch.nn.BCEWithLogitsLoss()
+    else:
+        loss_fct = torch.nn.CrossEntropyLoss()
     for step, batch in enumerate(epoch_iterator):
         batch = tuple(t.to(args.device) for t in batch)
         x, y = batch
-        if args.model_type == "ViViT-B/16x2":
-                # For handling images
-            if x.dim() == 4:
-                x = torch.unsqueeze(x, 1)
-                x = x.expand(-1,2,-1,-1,-1)
+        
+        # For handling images
+        if x.dim() == 4:
+            x = torch.unsqueeze(x, 1)
+            x = x.expand(-1,2,-1,-1,-1)
         with torch.no_grad():
             logits = model(x)
 
@@ -221,11 +224,11 @@ def train(args, model):
         for step, batch in enumerate(epoch_iterator):
             batch = tuple(t.to(args.device) for t in batch)
             x, y = batch
-            if args.model_type == "ViViT-B/16x2":
-                # For handling images
-                if x.dim() == 4:
-                    x = torch.unsqueeze(x, 1)
-                    x = x.expand(-1,2,-1,-1,-1)
+            
+            # For handling images
+            if x.dim() == 4:
+                x = torch.unsqueeze(x, 1)
+                x = x.expand(-1,2,-1,-1,-1)
             
             loss = model(x, y)
 
@@ -278,10 +281,10 @@ def main():
     # Required parameters
     parser.add_argument("--name", required=False, default="test",
                         help="Name of this run. Used for monitoring.")
-    parser.add_argument("--dataset", choices=["cifar10", "cifar100","custom"], default="custom",
+    parser.add_argument("--dataset", choices=["cifar10", "cifar100","custom"], default="cifar10",
                         help="Which downstream task.")
     parser.add_argument("--model_type", choices=["ViViT-B/16x2","ViViT-B/16x2-small"],
-                        default="ViViT-B/16x2",
+                        default="ViViT-B/16x2-small",
                         help="Which variant to use.")
     parser.add_argument("--pretrained_dir", type=str, default="ViT-B_16.npz",
                         help="Where to search for pretrained ViT models.")
@@ -292,15 +295,16 @@ def main():
     parser.add_argument("--test_dir", default=None, type=str,
                         help="Path to the test data.")
     parser.add_argument("--num_classes", default=2, type=int,
-                        help="Resolution size")
+                        help="number of class")
+
 
     parser.add_argument("--img_size", default=224, type=int,
                         help="Resolution size")
     parser.add_argument("--num_frames", default=32, type=int,
                         help="Number of input frame to sample")
-    parser.add_argument("--train_batch_size", default=2, type=int,
+    parser.add_argument("--train_batch_size", default=128, type=int,
                         help="Total batch size for training.")
-    parser.add_argument("--eval_batch_size", default=2, type=int,
+    parser.add_argument("--eval_batch_size", default=128, type=int,
                         help="Total batch size for eval.")
     parser.add_argument("--eval_every", default=100, type=int,
                         help="Run prediction on validation set every so many steps."

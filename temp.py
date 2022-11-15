@@ -9,6 +9,8 @@ import subprocess
 import re
 from utils.custom_dataset import CustomDataset
 from utils.data_utils import data_transforms
+from torch.nn import CrossEntropyLoss, Dropout, Softmax, Linear, LayerNorm, BCEWithLogitsLoss,BCELoss
+
 "ffmpeg  -i train/videos/1070.mp4 -vframes 2 -vf cropdetect -f null -"
 # p1 = subprocess.run(['ls'],capture_output=True, text=True)
 # print(p1.stdout)
@@ -74,6 +76,11 @@ from utils.data_utils import data_transforms
 #     plt.figure()
 #     plt.imshow(image) 
 #     plt.show() 
-a = np.array([1, 2, 3])
-t = torch.tensor(a, dtype=torch.float16)
+a = torch.tensor([10],dtype=torch.float32)
+b = torch.tensor([0], dtype=torch.float32)
+
+loss_fct = BCEWithLogitsLoss()   
+normal = BCELoss()
+#a = torch.sigmoid(a)
+t = loss_fct(a,b)
 print(type(t))
