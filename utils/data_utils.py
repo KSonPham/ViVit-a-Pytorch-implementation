@@ -22,7 +22,7 @@ class MyRotateTransform(object):
         return F.rotate(x, angle)
     
 
-    
+
 data_transforms = {
 
 'train': T.Compose([
@@ -81,28 +81,43 @@ def get_loader(args):
                                     transform=transform_test) if args.local_rank in [-1, 0] else None
     
     else:
-        data = CustomDataset(args.data_dir + "/videos",args.data_dir + "/label.csv",args.num_frames, blackbar_check=get_blackbar)
-        try:
-            trainset,testset = random_split(data, [0.8, 0.2], generator=torch.Generator().manual_seed(args.seed))
-        except:
-            trainset,testset = random_split(data, [935, 233], generator=torch.Generator().manual_seed(args.seed))
-        trainset.dataset.set_transform(data_transforms["train"])
-        testset.dataset.set_transform(data_transforms["val"])
+    
+        if args.data_dir and not args.test_dir:
+            data = CustomDataset(args.data_dir + "/videos",args.data_dir + "/label.csv",args.num_frames,transform=data_transforms["train"], blackbar_check=get_blackbar)
+            try:
+                trainset,testset = random_split(data, [0.8, 0.2], generator=torch.Generator().manual_seed(args.seed))
+            except:
+                trainset,testset = random_split(data, [935, 233], generator=torch.Generator().manual_seed(args.seed))
+            testset.dataset.set_transform(data_transforms["val"])
+        elif args.data_dir and args.test_dir:
+            trainset = CustomDataset(args.data_dir + "/videos",args.data_dir + "/label.csv",args.num_frames,transform=data_transforms["train"], blackbar_check=get_blackbar)
+            testset = CustomDataset(args.test_dir + "/videos",args.test_dir + "/label.csv",args.num_frames,transform=data_transforms["test"], blackbar_check=get_blackbar)
+        elif not args.data_dir and args.test_dir:
+            testset = CustomDataset(args.test_dir + "/videos",None,args.num_frames,transform=data_transforms["test"], blackbar_check=get_blackbar)
+            trainset = None
+        
     if args.local_rank == 0:
         torch.distributed.barrier()
-
-    train_sampler = RandomSampler(trainset) if args.local_rank == -1 else DistributedSampler(trainset)
-    test_sampler = SequentialSampler(testset)
-    train_loader = DataLoader(trainset,
+    if trainset is not None:
+        train_sampler = RandomSampler(trainset) if args.local_rank == -1 else DistributedSampler(trainset)
+        train_loader = DataLoader(trainset,
                               sampler=train_sampler,
                               batch_size=args.train_batch_size,
                               num_workers=0,
                               pin_memory=True)
-    test_loader = DataLoader(testset,
+    else:
+        train_loader = None
+    if testset is not None:
+        test_sampler = SequentialSampler(testset)
+        test_loader = DataLoader(testset,
                              sampler=test_sampler,
                              batch_size=args.eval_batch_size,
                              num_workers=0,
-                             pin_memory=True) if testset is not None else None
+                             pin_memory=True)
+    else:
+        train_loader = None
+        
+    
 
     return train_loader, test_loader
 

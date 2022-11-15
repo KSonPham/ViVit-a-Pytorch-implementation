@@ -58,7 +58,7 @@ class CustomDataset(torch.utils.data.Dataset):
 				 sample_method="tubelet",
      			 blackbar_check=None):
 		# self.configs = configs
-		self.labels = pd.read_csv(label_path)
+		self.labels = pd.read_csv(label_path) if label_path != None else None
 		self.label_path = label_path
 		self.data = os.listdir(data_path)
 		self.data_path = data_path
@@ -98,7 +98,12 @@ class CustomDataset(torch.utils.data.Dataset):
 	
 		# Video align transform: T C H W
 		with torch.no_grad():
-			video = torch.tensor(video, dtype=torch.float16)
+			if self.label_path != None:
+				label = self.labels[self.labels["fname"] == vid]["liveness_score"].item()
+				video = torch.tensor(video, dtype=torch.float16)
+			else:
+				label = None
+				video = torch.tensor(video, dtype=torch.float32)
 			video = video.permute(0,3,1,2)
 			video = torch.div(video, 255)
 			if blackbak_crop is not None:
@@ -106,12 +111,9 @@ class CustomDataset(torch.utils.data.Dataset):
 			if self.transform is not None:
 				video = self.transform(video)
 
-		# Label (depends)
-		if self.label_path != None:
-			label = self.labels[self.labels["fname"] == vid]["liveness_score"].item()
-			return video, label
-		else:
-			return video
+		data_out = (video,label) if label != None else video
+		return  data_out
+		
 
 	def __len__(self):
 		return len(self.data)

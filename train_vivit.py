@@ -50,11 +50,21 @@ def simple_accuracy(preds, labels):
 
 
 def save_model(args, model):
-    model_to_save = model.module if hasattr(model, 'module') else model
+    config = CONFIGS[args.model_type]
+    config.num_classes = args.num_classes
+    config.img_size = args.img_size
+    config.num_frames = args.num_frames
+    
+    
+    model_to_save = model
     model_checkpoint = os.path.join(args.output_dir, "%s_checkpoint.bin" % args.name)
-    torch.save(model_to_save.state_dict(), model_checkpoint)
-    logger.info("Saved model checkpoint to [DIR: %s]", args.output_dir)
+    torch.save({
+            'config': config,
+            'model_state_dict': model_to_save.state_dict()
+            }, model_checkpoint)
 
+    logger.info("Saved model checkpoint to [DIR: %s]", args.output_dir)
+    
 
 def setup(args):
     # Prepare model
@@ -66,8 +76,10 @@ def setup(args):
     
     if args.dataset == "cifar10" or args.dataset == "cifar100":
         num_frames = 1
+        num_classes = 10 if args.dataset == "cifar10" else 100
     else:
         num_frames = args.num_frames
+        num_classes = args.num_classes
         
     model = MyViViT(config, args.img_size, num_classes=num_classes, num_frames=num_frames)
     model.load_from(np.load(args.pretrained_dir))
@@ -78,6 +90,8 @@ def setup(args):
     logger.info("Training parameters %s", args)
     logger.info("Total Parameter: \t%2.1fM" % num_params)
     print(num_params)
+
+    
     return args, model
 
 
@@ -150,45 +164,7 @@ def valid(args, model, writer, test_loader, global_step):
     writer.add_scalar("test/accuracy", scalar_value=accuracy, global_step=global_step)
     return accuracy
 
-def test(args, model, writer, test_loader, global_step):
-    # Validation!
 
-    logger.info("***** Running Validation *****")
-    logger.info("  Num steps = %d", len(test_loader))
-    logger.info("  Batch size = %d", args.eval_batch_size)
-
-    model.eval()
-    all_preds = [] 
-    epoch_iterator = tqdm(test_loader,
-                          desc="Testing...",
-                          bar_format="{l_bar}{r_bar}",
-                          dynamic_ncols=True,
-                          disable=args.local_rank not in [-1, 0])
-    
-    for step, batch in enumerate(epoch_iterator):
-        batch = tuple(t.to(args.device) for t in batch)
-        x, _ = batch
-        if args.model_type == "ViViT-B/16x2":
-                # For handling images
-            if x.dim() == 4:
-                x = torch.unsqueeze(x, 1)
-                x = x.expand(-1,2,-1,-1,-1)
-        with torch.no_grad():
-            logits = model(x)
-            preds = torch.argmax(logits, dim=-1)
-
-        if len(all_preds) == 0:
-            all_preds.append(preds.detach().cpu().numpy())
-
-        else:
-            all_preds[0] = np.append(
-                all_preds[0], preds.detach().cpu().numpy(), axis=0
-            )
-
-
-    all_preds = all_preds[0]
-
-    return all_preds
 
 def train(args, model):
     """ Train the model """
@@ -313,6 +289,10 @@ def main():
                         help="The output directory where checkpoints will be written.")
     parser.add_argument("--data_dir", default="train", type=str,
                         help="Path to the data.")
+    parser.add_argument("--test_dir", default=None, type=str,
+                        help="Path to the test data.")
+    parser.add_argument("--num_classes", default=2, type=int,
+                        help="Resolution size")
 
     parser.add_argument("--img_size", default=224, type=int,
                         help="Resolution size")
