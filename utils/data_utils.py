@@ -27,14 +27,14 @@ class MyRotateTransform(object):
 data_transforms = {
 
 'train': T.Compose([
-	T.RandomResizedCrop(size=(224,224), scale=(0.5,1)),
+	T.RandomResizedCrop(size=(224,224), scale=(0.7,1), ratio=(5/4,5/3)),
 	T.RandomHorizontalFlip(),
 	MyRotateTransform([0, 180]),
 	T.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
 ]),
 
 'val': T.Compose([
-	T.RandomResizedCrop(size=(224,224), scale=(1,1)),
+	T.RandomResizedCrop(size=(224,224), scale=(1,1), ratio=(5/4,5/3)),
 	T.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
 ]),
 

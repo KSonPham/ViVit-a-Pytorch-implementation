@@ -56,7 +56,7 @@ def test(args):
     videos = sorted(listdir(args.test_dir  + "/videos"))
     temp = zip(videos,offical_score)
     out = DataFrame(temp, columns=['fname', 'liveness_score'])
-    out.to_csv(join("results", args.name + "_" + args.test_dir +".csv"), sep = '\t')
+    out.to_csv(join("results", args.name + "_" + args.test_dir +".csv"), sep = '\t',index=False)
     return 
 
 def main():
