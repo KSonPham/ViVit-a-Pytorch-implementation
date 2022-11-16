@@ -10,6 +10,7 @@ from utils.custom_dataset import CustomDataset
 import random
 import torchvision.transforms as T
 import torchvision.transforms.functional as F
+import numpy as np
 
 logger = logging.getLogger(__name__)
 
@@ -18,7 +19,7 @@ class MyRotateTransform(object):
         self.angles = angles
 
     def __call__(self, x):
-        angle = random.choice(self.angles)
+        angle = np.random.choice(self.angles, p=[0.8, 0.2])
         return F.rotate(x, angle)
     
 
@@ -28,7 +29,7 @@ data_transforms = {
 'train': T.Compose([
 	T.RandomResizedCrop(size=(224,224), scale=(0.5,1)),
 	T.RandomHorizontalFlip(),
-	MyRotateTransform([0,90,-90]),
+	MyRotateTransform([0, 180]),
 	T.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
 ]),
 
