@@ -15,7 +15,7 @@ import torchvision.transforms.functional as F
 class DecordInit(object):
 	"""Using Decord(https://github.com/dmlc/decord) to initialize the video_reader."""
 
-	def __init__(self, num_threads=2, **kwargs):
+	def __init__(self, num_threads=8, **kwargs):
 		self.num_threads = num_threads
 		self.ctx = decord.cpu(0)
 		#decord.bridge.set_bridge('torch')
