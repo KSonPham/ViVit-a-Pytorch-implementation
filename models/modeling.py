@@ -171,8 +171,9 @@ class Embeddings3D(nn.Module):
         return embeddings
 
 class Block(nn.Module):
-    def __init__(self, config, vis):
+    def __init__(self, config, vis, stochastic_depth_p):
         super(Block, self).__init__()
+        self.droplayer_p = torch.distributions.bernoulli.Bernoulli(torch.Tensor([stochastic_depth_p]))
         self.hidden_size = config.hidden_size
         self.attention_norm = LayerNorm(config.hidden_size, eps=1e-6)
         self.ffn_norm = LayerNorm(config.hidden_size, eps=1e-6)
@@ -180,16 +181,30 @@ class Block(nn.Module):
         self.attn = Attention(config, vis)
 
     def forward(self, x):
-        h = x
-        x = self.attention_norm(x)
-        x, weights = self.attn(x)
-        x = x + h
 
-        h = x
-        x = self.ffn_norm(x)
-        x = self.ffn(x)
-        x = x + h
-        return x, weights
+        if self.training:
+            if torch.equal(self.droplayer_p.sample(), torch.ones(1)):
+                h = x
+                x = self.attention_norm(x)
+                x, weights = self.attn(x)
+
+            h = x
+            x = self.ffn_norm(x)
+            x = self.ffn(x)
+            x = x + h
+            return x, None
+        
+        else:
+            h = x
+            x = self.attention_norm(x)
+            x, weights = self.attn(x)
+            x = x + h
+
+            h = x
+            x = self.ffn_norm(x)
+            x = self.ffn(x)
+            x = x + h
+            return x, weights
 
     def load_from(self, weights, n_block):
         ROOT = f"Transformer/encoderblock_{n_block}"
@@ -230,30 +245,31 @@ class Block(nn.Module):
 
 
 class Encoder(nn.Module):
-    def __init__(self, config, vis):
+    def __init__(self, config, vis, stochastic_depth_p):
         super(Encoder, self).__init__()
         self.vis = vis
         self.layer = nn.ModuleList()
         self.encoder_norm = LayerNorm(config.hidden_size, eps=1e-6)
         for _ in range(config.transformer["num_layers"]):
-            layer = Block(config, vis)
+            layer = Block(config, vis, stochastic_depth_p)
             self.layer.append(copy.deepcopy(layer))
 
     def forward(self, hidden_states):
         attn_weights = []
         for layer_block in self.layer:
-            hidden_states, weights = layer_block(hidden_states)
-            if self.vis:
-                attn_weights.append(weights)
+            # hidden_states, weights = layer_block(hidden_states)
+            hidden_states, _ = layer_block(hidden_states)
+            # if self.vis:
+            #     attn_weights.append(weights)
         encoded = self.encoder_norm(hidden_states)
-        return encoded, attn_weights
+        return encoded, _ # attn_weights
 
 
 class Transformer(nn.Module):
-    def __init__(self, config, img_size, num_frames, temporal, vis = False):
+    def __init__(self, config, img_size, num_frames, stochastic_depth_p, temporal, vis = False):
         super(Transformer, self).__init__()
         self.embedding = Embeddings3D(config, img_size=img_size,num_frame=num_frames, temporal=temporal)
-        self.encoder = Encoder(config, vis)
+        self.encoder = Encoder(config, vis, stochastic_depth_p)
 
     def forward(self, input_ids):
         input_ids = self.embedding(input_ids)
@@ -271,10 +287,11 @@ class MyViViT(nn.Module):
         self.num_frames = num_frames
         self.num_classes = num_classes
         self.label_smoothing = config.label_smoothing
+        self.stochastic_depth_p = config.stochastic_depth
         assert pool in {'cls', 'mean'}, 'pool type must be either cls (cls token) or mean (mean pooling)'
 
-        self.spatial_transformer = Transformer(config.spatial,image_size,num_frames,temporal=False) 
-        self.temporal_transformer = Transformer(config.temporal,image_size,num_frames,temporal = True)       
+        self.spatial_transformer = Transformer(config.spatial, image_size, num_frames, self.stochastic_depth_p, temporal=False) 
+        self.temporal_transformer = Transformer(config.temporal, image_size, num_frames, self.stochastic_depth_p, temporal = True)       
         self.pool = pool
         self.mlp_head = nn.Sequential(
             nn.LayerNorm(self.hidden_dim),

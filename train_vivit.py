@@ -70,6 +70,7 @@ def setup(args):
     # Prepare model
     config = CONFIGS[args.model_type]
     config.label_smoothing = args.label_smoothing
+    config.stochastic_depth = args.stochastic_depth
 
     num_classes = 10 if args.dataset == "cifar10" else 100
 
@@ -80,7 +81,7 @@ def setup(args):
     else:
         num_frames = args.num_frames
         num_classes = args.num_classes
-        
+    
     model = MyViViT(config, args.img_size, num_classes=num_classes, num_frames=num_frames)
     model.load_from(np.load(args.pretrained_dir))
     model.to(args.device)
@@ -314,6 +315,8 @@ def main():
                         help="Weight deay if we apply some.")
     parser.add_argument("--label_smoothing", default=0, type=float,
                         help="label smoothing p.")
+    parser.add_argument("--stochastic_depth", default=0, type=float,
+                        help="stochastic depth p.")
     parser.add_argument("--num_steps", default=10000, type=int,
                         help="Total number of training epochs to perform.")
     parser.add_argument("--decay_type", choices=["cosine", "linear"], default="cosine",
