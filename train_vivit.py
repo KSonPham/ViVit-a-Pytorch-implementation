@@ -315,7 +315,7 @@ def main():
                         help="Weight deay if we apply some.")
     parser.add_argument("--label_smoothing", default=0, type=float,
                         help="label smoothing p.")
-    parser.add_argument("--stochastic_depth", default=0, type=float,
+    parser.add_argument("--stochastic_depth", default=[1,0.5], type=list,
                         help="stochastic depth p.")
     parser.add_argument("--num_steps", default=10000, type=int,
                         help="Total number of training epochs to perform.")
